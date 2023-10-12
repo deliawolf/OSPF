@@ -121,3 +121,285 @@ router ospf 5
  router-id 5.5.5.5
  network 10.10.4.0 0.0.0.255 area 2
 ```
+
+
+## Optimizing the OSPF
+
+## Additional Config
+```
+R1(config)# **interface ethernet 0/1
+R1(config-if)# ip ospf priority 100
+
+R3(config)# **interface ethernet 0/0
+R3(config-if)# **ip mtu 1400
+
+R1(config-if)# **interface serial 2/0
+R1(config-if)# **ip ospf hello-interval 5
+R1(config-if)# **ip ospf dead-interval 30
+```
+### COnfiguring Passive Interface
+
+When you configure a passive interface under the OSPF process, the router will stop sending and receiving OSPF hello packets on the selected interface. Use passive interface configuration only on interfaces where you do not expect the router to form an OSPF neighbor adjacency. 
+
+enable it per-interfaces
+```
+R1(config)# router ospf 1
+R1(config-router)# passive-interface Loopback 0
+```
+enable it globally as default
+```
+R1(config)# router ospf 1
+R1(config-router)# passive-interface default 
+```
+
+### Default Routing in OSPF
+
+To be able to perform routing from an OSPF domain toward external networks or toward the Internet, you must either know all the destination networks or create a default route noted as 0.0.0.0/0.
+```
+ASBR(config)# router ospf 1
+ASBR(config-router)# default-information originate
+```
+Modify the default-information originate command to allow ASBR to advertise a default route regardless of whether it already has a default route in its routing table
+```
+ASBR(config)# router ospf 1
+ASBR(config-router)# default-information originate always
+```
+
+### Path Calculation
+
+Cost = reference bandwidth / interface bandwidth
+```
+R1(config)# router ospf 1
+R1(config-router)# auto-cost reference-bandwidth 10000
+```
+directly modify the link
+```
+R1(config)# interface Ethernet 0/0
+R1(config-if)# ip ospf cost 500
+```
+
+### Summarization
+
+Summarization of type 3 summary LSAs means that you are creating a summary of all the interarea (type 1 and type 2 LSAs) routes. so the summary will become representatif for all the interarea ip
+
+ABR 
+```
+ABR(config)# router ospf 1
+ABR(config-router)# area 1 range 192.168.16.0 255.255.248.0
+```
+ASBR
+```
+ASBR(config)# router ospf 1
+ASBR(config-router)# summary-address 10.33.4.0 255.255.252.0
+```
+
+### OSPF Filtering
+
+IOS supports the following four types of OSPF route filtering:
+
+1. ABR Type-3 LSA filtering using the filter-list command: A process of preventing an ABR from creating certain Type-3 summary LSAs.
+
+2. Using the area range not-advertise command: Another process to prevent an ABR from creating specific Type-3 summary LSAs.
+
+3. Filtering routes (not LSAs): Using the distribute-list in command, a router can filter the routes that its SPF process is attempting to add to its routing table without affecting the LSDB. This type of filtering can be applied to Type-3 LSAs and Type-5 LSAs.
+
+4. Using the summary-address not-advertise command: Like the area range not-advertise command but it is applied to the ASBR to prevent it from creating specific Type-5 AS External LSAs.
+    
+#### Filter List
+
+assign the prefix-list to Area 1 in the outbound direction
+```
+R1(config)# ip prefix-list FROM_R2 deny 192.168.2.0/24
+R1(config)# ip prefix-list FROM_R2 permit 0.0.0.0/0 le 32
+R1(config)# router ospf 1
+R1(config-router)# area 1 filter-list prefix FROM_R2 out
+R1(config-router)# end
+R1# clear ip ospf process
+```
+applied inbound on Area 0 instead
+```
+R1(config)# router ospf 1     
+R1(config-router)# no area 1 filter-list prefix FROM_R2 out
+R1(config-router)# area 0 filter-list prefix FROM_R2 in
+R1# clear ip ospf process 
+```
+
+#### Area Range (for ABR)
+
+the 192.168.3.0/24 prefix from Area 2 is filtered at the Area Border Router and not flooded into Area 0 or Area 1 as Type-3 LSAs
+```
+R1(config)# router ospf 1
+R1(config-router)# area 2 range 192.168.3.0 255.255.255.0 not-advertise
+```
+#### Filtering Type-5 LSAs with the Summary-Address Command (for ASBR)
+
+R3 is configured with the summary-address not-advertise command for the 10.33.33.0/24 prefix. This prevents R3 from generating a Type-5 AS External LSA for that network.
+```
+R3(config-if)# router ospf 1
+R3(config-router)# summary-address 10.33.33.0 255.255.255.0 not-advertise
+```
+#### Distribution List
+
+For OSPF, the distribute list in command filters what ends up in the IP routing table and only on the router on which the distribute-list in command is configured.
+
+The access control list will allow R1 to learn all routes except for the 192.168.4.0/24 prefix. The access control list is used as a distribute list and applied in the inbound direction to filter OSPF routes that are being added to its own routing table.
+```
+R1(config)# access-list 1 deny 192.168.4.0 0.0.0.255
+R1(config)# access-list 1 permit any
+R1(config)# router ospf 1
+R1(config-router)# distribute-list 1 in
+```
+
+#### Using a Prefix List with the Distribute-List Command
+
+This new distribute list is also applied inbound to filter routes being added to R1’s routing table.
+```
+R1(config)# ip prefix-list R4-LOOP deny 192.168.4.0/24
+R1(config)# ip prefix-list R4-LOOP permit 0.0.0.0/0 le 32
+R1(config)# router ospf 1
+R1(config-router)# no distribute-list 1 in
+R1(config-router)# distribute-list prefix R4-LOOP in
+```
+
+#### Using a Combination of Route Map, Prefix List, and Access List with the Distribute-List Command
+
+```
+R4(config)# ip prefix-list WAN-LINKS permit 172.16.12.0/30
+R4(config)# ip prefix-list WAN-LINKS permit 172.16.13.0/30
+
+R4(config)# ip access-list standard R1-ID               
+R4(config-std-nacl)# permit 1.1.1.1
+
+R4(config)# route-map WAN-FILTER deny 10
+R4(config-route-map)# match ip address prefix-list WAN-LINKS
+R4(config-route-map)# match ip route-source R1-ID
+R4(config-route-map)# route-map WAN-FILTER permit 20
+R4(config-route-map)# exit        
+R4(config-route-map)# router ospf 1
+R4(config-router)# distribute-list route-map WAN-FILTER in
+```
+### Implement OSPFv3
+
+1. Enable IPv6 routing.
+```
+Router(config)# ipv6 unicast-routing
+```
+2. Enable the OSPFv3 routing process.
+```
+R1(config)# ipv6 router ospf 1
+```
+3. Configure the router ID.
+```
+R1(config-rtr)# router-id 1.1.1.1
+```
+4. Enable OSPFv3 on an interface.
+```
+R1(config)# interface Loopback0
+R1(config-if)# ipv6 ospf 1 area 0
+R1(config-if)# ipv6 ospf network point-to-point
+R1(config-if)# interface Ethernet0/0
+R1(config-if)# ipv6 ospf 1 area 0
+R1(config-if)# interface Serial2/0
+R1(config-if)# ipv6 ospf 1 area 1
+R1(config-if)# interface Ethernet0/1
+R1(config-if)# ipv6 ospf 1 area 2
+```
+5. (Optionally): Configure passive interfaces by using the default command or configure passive interfaces by using the interface command.
+Passive interface to whole device
+```
+R1(config-router)# passive-interface default
+```
+Passive for some interface
+```
+R1(config-rtr)# passive-interface Loopback0
+```
+
+#### different SLAs and new SLAs
+
+The two renamed LSA types are:
+
+1. Interarea prefix LSAs for ABRs (Type 3): Type 3 LSAs advertise internal networks to routers in other areas (interarea routes). Type 3 LSAs may represent a single network or a set of networks summarized into one advertisement. Only ABRs generate summary LSAs. In OSPF for IPv6, addresses for these LSAs are expressed as prefix/prefix-length instead of an address and mask. The default route is expressed as a prefix with length 0.
+
+2. Interarea router LSAs for ASBRs (Type 4): Type 4 LSAs advertise the location of an ASBR. An ABR originates an interarea router LSA into an area to advertise an ASBR that resides outside of the area. The ABR originates a separate interarea Router LSA for each ASBR it advertises. Routers that are trying to reach an external network use these advertisements to determine the best path to the next hop.
+
+The two new LSA types are:
+
+1. Link LSAs (Type 8): Type 8 LSAs have local-link flooding scope and are never flooded beyond the link with which they are associated. Link LSAs provide the link-local address of the router to all other routers that are attached to the link. They inform other routers that are attached to the link of a list of IPv6 prefixes to associate with the link. In addition, they allow the router to assert a collection of option bits to associate with the network LSA that will be originated for the link.
+
+2. Intra-area prefix LSAs (Type 9): A router can originate multiple intra-area prefix LSAs for each router or transit network, each with a unique link-state ID. The link-state ID for each intra-area prefix LSA describes its association to either the router LSA or the network LSA. The link-state ID also contains prefixes for stub and transit networks.
+
+### Migrate to OSPFv3 so it support IPv4 and IPv6
+
+OSPFv3 does not only support the exchange of IPv6 routes but it also supports the exchange of IPv4 routes.
+```
+R1(config)# router ospfv3 1
+R1(config-router)# router-id 1.1.1.1
+R1(config-router)# passive-interface Loopback0
+```
+```
+R1(config)# interface Loopback 0
+R1(config-if)# ospfv3 1 ipv6 area 0
+R1(config-if)# ospfv3 1 ipv6 network point-to-point
+R1(config-if)# interface Ethernet 0/0
+R1(config-if)# ospfv3 1 ipv6 area 0
+R1(config-if)# interface Serial 2/0
+R1(config-if)# ospfv3 1 ipv6 area 1
+R1(config-if)# interface Ethernet 0/1
+R1(config-if)# ospfv3 1 ipv6 area 2
+```
+enable the ipv4
+```
+R1(config)# router ospfv3 1
+R1(config-router)# address-family ipv4 unicast
+R1(config-router-af)# passive-interface Loopback0
+R1(config-router-af)# interface Loopback0
+R1(config-if)# ospfv3 1 ipv4 area 0
+R1(config-if)# ospfv3 1 ipv4 network point-to-point
+R1(config-if)# interface Ethernet0/0
+R1(config-if)# ospfv3 1 ipv4 area 0
+R1(config-if)# interface Ethernet0/1
+R1(config-if)# ospfv3 1 ipv4 area 2
+R1(config-if)# interface Serial2/0
+R1(config-if)# ospfv3 1 ipv4 area 1
+```
+
+
+### Optimize OSPFv3 Behavior
+
+IPv6 Route Summarization on ABR
+```
+R1(config)# router ospfv3 1
+R1(config-router)# address-family ipv6 unicast 
+R1(config-router-af)# area 1 range 2001:DB8:ACAD::/60
+```
+IPv6 Route Summarization on ASBR
+```
+R1(config)# router ospfv3 1
+R1(config-router)# address-family ipv6 unicast 
+R1(config-router-af)# summary-prefix 2001:DB8:1::/56
+```
+IPv6 Default Route Advertisement
+```
+R1(config)# router ospfv3 1
+R1(config-router)# address-family ipv6 unicast 
+R1(config-router-af)# default-information originate
+```
+summarize a set of IPv6 network addresses using the address block 2001:DB8:0:220::/60.
+```
+R1(config)# router ospfv3 1
+R1(config-router)# address-family ipv6 unicast 
+R1(config-router-af)# area 1 range 2001:DB8:0:220::/60
+```
+increase the OSPF cost of the serial interface link to 200
+```
+R1(config)# interface Serial 2/0
+R1(config-if)# ospfv3 1 ipv6 cost 200
+```
+advertise a default route into the OSPFv3 IPv4 and IPv6 address families.
+```
+R1(config)# router ospfv3 1
+R1(config-router)# address-family ipv4 unicast 
+R1(config-router-af)# default-information originate 
+R1(config-router-af)# address-family ipv6 unicast
+R1(config-router-af)# default-information originate
+```
