@@ -280,6 +280,35 @@ R4(config-router)# distribute-list route-map WAN-FILTER in
 ```
 ### Implement OSPFv3
 
+NOTE :
+
+The OSPF processes—traditional OSPFv2, traditional OSPFv3, and the new OSPFv3 that uses address families to support both IP stacks—differ in the transport protocols.
+
+   1. Traditional OSPFv2 for IPv4
+
+        router ospf process-id
+
+        Transported over IPv4
+
+   2. Traditional OSPFv3 for IPv6 only
+
+        ipv6 router ospf process-id
+
+        Transported over IPv6
+
+        Peering over IPv6 link-local addresses
+
+   3. New OSPFv3 for IPv4 and IPv6 address families
+
+        router ospfv3 process-id
+
+        Transported over IPv6 (link-local addresses)
+
+        No peering with traditional OSPFv2 routers
+        
+
+#### Traditional OPSFV3
+
 1. Enable IPv6 routing.
 ```
 Router(config)# ipv6 unicast-routing
@@ -328,7 +357,7 @@ The two new LSA types are:
 
 2. Intra-area prefix LSAs (Type 9): A router can originate multiple intra-area prefix LSAs for each router or transit network, each with a unique link-state ID. The link-state ID for each intra-area prefix LSA describes its association to either the router LSA or the network LSA. The link-state ID also contains prefixes for stub and transit networks.
 
-### Migrate to OSPFv3 so it support IPv4 and IPv6
+### Migrate to Newest OSPFv3 so it support IPv4 and IPv6 (Upgrade from Traditional OSPFv3 to Newest OSPFv3)
 
 OSPFv3 does not only support the exchange of IPv6 routes but it also supports the exchange of IPv4 routes.
 ```
